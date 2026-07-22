@@ -1,8 +1,10 @@
 """
-Strafor Kalıp Kapasite Hesaplama — Streamlit Uygulaması (Gelişmiş Dashboard Versiyonu)
+Strafor Kalıp Kapasite Hesaplama — Streamlit Uygulaması (v3)
 =========================================================
-Master Liste + Öngörüler dosyaları yüklenince otomatik kapasite/doluluk hesabı yapar. 
-Tüm hücrelerde "blok kesim" arar. Pasta grafikler ve detaylı aylık analizler sunar.
+- 'üretim_adedi' sayfasındaki blok kesim notlarını yakalar.
+- Blok kesimleri eşleşmemiş saymaz.
+- Eşleşmeyenleri açıkça belirtir.
+- Dashboard sekmesi sadeleştirilmiştir (sadece Pie Chart).
 """
 
 import re
@@ -64,18 +66,44 @@ def normalize_kod(value) -> str:
     return s.zfill(6) if s else ""
 
 # --------------------------------------------------------------------------
-# Dosya Okuma & Garantili Blok Kesim Bulucu
+# Blok Kesim Çıkarma İşlemi
 # --------------------------------------------------------------------------
 
-def flag_blok_kesim(df: pd.DataFrame) -> pd.Series:
-    """Verilen DataFrame'in TÜM sütunlarını tarar ve 'blok kesim' içeriyorsa True döner."""
-    mask = pd.Series(False, index=df.index)
-    for col in df.columns:
-        mask |= df[col].astype(str).str.contains(r"blok\s*kesim", case=False, na=False)
-    return mask
+def extract_blok_kesim_list(file) -> pd.DataFrame:
+    """Excel dosyası içindeki 'üretim_adedi' sayfasını (veya tüm sayfaları) tarayıp Blok Kesimleri bulur."""
+    blok_list = set()
+    try:
+        xls = pd.ExcelFile(file)
+        # Eğer üretim_adedi sayfası varsa onu, yoksa ilk sayfayı oku
+        sheet_to_read = 'üretim_adedi' if 'üretim_adedi' in xls.sheet_names else xls.sheet_names[0]
+        df = pd.read_excel(file, sheet_name=sheet_to_read)
+        
+        malzeme_col = find_col(df, ["MALZEME"])
+        firma_col = find_col(df, ["FIRMA", "FİRMA"])
+        
+        if malzeme_col and firma_col:
+            for col in df.columns:
+                mask = df[col].astype(str).str.contains(r"blok\s*kesim", case=False, na=False)
+                if mask.any():
+                    for _, row in df[mask].iterrows():
+                        k = normalize_kod(row[malzeme_col])
+                        f = normalize_firma(row[firma_col])
+                        if k and f:
+                            blok_list.add((f, k))
+    except Exception:
+        pass
+    
+    if blok_list:
+        return pd.DataFrame(list(blok_list), columns=["firma", "kod"]).assign(is_blok_kesim=True)
+    else:
+        return pd.DataFrame(columns=["firma", "kod", "is_blok_kesim"])
+
+# --------------------------------------------------------------------------
+# Dosya Okuma
+# --------------------------------------------------------------------------
 
 def load_master(file) -> tuple[pd.DataFrame, list[str]]:
-    df = pd.read_excel(file)
+    df = pd.read_excel(file, sheet_name=0) # Master liste verisi ilk sayfada varsayılır
     warnings = []
 
     col_kalip_no = find_col(df, ["KALIP NO", "KALIPNO"])
@@ -98,8 +126,7 @@ def load_master(file) -> tuple[pd.DataFrame, list[str]]:
         "goz_raw": df[col_goz],
         "firma": df[col_firma].apply(normalize_firma),
         "cevrim": pd.to_numeric(df[col_cevrim], errors="coerce"),
-        "duran_varlik": df[col_dv] if col_dv else "",
-        "is_blok_kesim": flag_blok_kesim(df)  # Tüm tabloyu tarar
+        "duran_varlik": df[col_dv] if col_dv else ""
     })
 
     out["parts"] = out["goz_raw"].apply(parse_parts)
@@ -131,8 +158,7 @@ def load_ongoru(file) -> tuple[pd.DataFrame, list[str]]:
     out = pd.DataFrame({
         "kod": df[col_malzeme].apply(normalize_kod),
         "firma": df[col_firma].apply(normalize_firma),
-        "tanim": df[col_tanim] if col_tanim else "",
-        "is_blok_kesim": flag_blok_kesim(df) # Tüm tabloyu tarar
+        "tanim": df[col_tanim] if col_tanim else ""
     })
     
     for i, ay in enumerate(AYLAR):
@@ -140,7 +166,6 @@ def load_ongoru(file) -> tuple[pd.DataFrame, list[str]]:
 
     agg = {ay: "sum" for ay in AYLAR}
     agg["tanim"] = "first"
-    agg["is_blok_kesim"] = "any"
     grouped = out.groupby(["kod", "firma"], as_index=False).agg(agg)
     return grouped, warnings
 
@@ -148,13 +173,12 @@ def load_ongoru(file) -> tuple[pd.DataFrame, list[str]]:
 # Kapasite hesabı
 # --------------------------------------------------------------------------
 
-def compute_capacity(master_df: pd.DataFrame, ongoru_df: pd.DataFrame, calendar_df: pd.DataFrame):
+def compute_capacity(master_df: pd.DataFrame, ongoru_df: pd.DataFrame, blok_kesim_df: pd.DataFrame, calendar_df: pd.DataFrame):
     grp = master_df.groupby(["firma", "kod"], as_index=False).agg(
         birlesik_hiz=("hiz", lambda s: np.nansum(s) if s.notna().any() else np.nan),
         fiziksel_kalip_sayisi=("duran_varlik", "nunique"),
         ambiguous=("ambiguous", "any"),
-        tanim=("tanim", "first"),
-        is_blok_kesim=("is_blok_kesim", "any")
+        tanim=("tanim", "first")
     )
 
     merged = pd.merge(grp, ongoru_df, on=["firma", "kod"], how="outer", suffixes=("_master", "_ongoru"))
@@ -162,7 +186,9 @@ def compute_capacity(master_df: pd.DataFrame, ongoru_df: pd.DataFrame, calendar_
         merged["tanim"] = merged.get("tanim_master", pd.Series(index=merged.index, dtype=object)).fillna(merged.get("tanim_ongoru", ""))
         merged.drop(columns=[c for c in ["tanim_master", "tanim_ongoru"] if c in merged.columns], inplace=True)
 
-    merged["is_blok_kesim"] = merged.get("is_blok_kesim_master", pd.Series(False)).fillna(False) | merged.get("is_blok_kesim_ongoru", pd.Series(False)).fillna(False)
+    # Blok kesim durumunu bağla
+    merged = pd.merge(merged, blok_kesim_df, on=["firma", "kod"], how="left")
+    merged["is_blok_kesim"] = merged["is_blok_kesim"].fillna(False)
     
     merged["kalip_var"] = merged["birlesik_hiz"].notna()
     for ay in AYLAR:
@@ -184,13 +210,17 @@ def compute_capacity(master_df: pd.DataFrame, ongoru_df: pd.DataFrame, calendar_
 
     merged["max_doluluk"] = merged[[f"{ay}_doluluk_%" for ay in AYLAR]].max(axis=1).fillna(0)
 
-    # Durum Belirleme
+    # --- DURUM BELİRLEME KISMI ---
     merged["durum"] = "Normal"
-    merged.loc[merged["talep_var"] & ~merged["kalip_var"], "durum"] = "Eşleşmedi (Kalıp Yok)"
-    merged.loc[~merged["talep_var"] & merged["kalip_var"], "durum"] = "Talep Yok"
     
-    merged.loc[merged["is_blok_kesim"] == True, "durum"] = "Blok Kesim"
+    # 1) Eşleşmeyenler (Açıkça belirtildi)
+    merged.loc[merged["talep_var"] & ~merged["kalip_var"], "durum"] = "🛑 EŞLEŞMEDİ: Kalıp Bulunamadı"
+    merged.loc[~merged["talep_var"] & merged["kalip_var"], "durum"] = "BİLGİ: Kalıp Var, Talep Yok"
+    
+    # 2) Blok Kesim Olanlar (Eşleşmedi statüsünden kurtarılır!)
+    merged.loc[merged["is_blok_kesim"] == True, "durum"] = "🧊 Blok Kesim (Kalıp Aranmaz)"
 
+    # 3) Kapasite Aşım Renklendirmeleri (Sadece normal olanlar)
     normal_mask = merged["durum"] == "Normal"
     merged.loc[normal_mask & (merged["max_doluluk"] > 100), "durum"] = "Kritik (>%100)"
     merged.loc[normal_mask & (merged["max_doluluk"] <= 100) & (merged["max_doluluk"] >= 90), "durum"] = "Uyarı (%90-100)"
@@ -219,21 +249,28 @@ with st.sidebar:
     st.session_state.calendar_df = st.data_editor(st.session_state.calendar_df, num_rows="fixed", width='stretch', key="cal_editor")
 
 if master_file and ongoru_file:
+    # Hem master'dan hem de öngörü dosyasından blok kesimleri yakala
+    blok_df_master = extract_blok_kesim_list(master_file)
+    blok_df_ongoru = extract_blok_kesim_list(ongoru_file)
+    blok_df_combined = pd.concat([blok_df_master, blok_df_ongoru]).drop_duplicates(subset=["firma", "kod"])
+
     master_df, _ = load_master(master_file)
     ongoru_df, _ = load_ongoru(ongoru_file)
-    result = compute_capacity(master_df, ongoru_df, st.session_state.calendar_df)
+    
+    result = compute_capacity(master_df, ongoru_df, blok_df_combined, st.session_state.calendar_df)
 
-    # Renk Paleti Tanımlamaları
+    # Renk Paleti
     COLOR_MAP = {
         "Kritik (>%100)": "#FF4B4B", "Uyarı (%90-100)": "#FFA500", "Dikkat (%80-90)": "#FFD700",
-        "Normal": "#00CC96", "Eşleşmedi (Kalıp Yok)": "#636EFA", "Talep Yok": "#AB63FA", "Blok Kesim": "#00B5F7"
+        "Normal": "#00CC96", "🛑 EŞLEŞMEDİ: Kalıp Bulunamadı": "#636EFA", 
+        "BİLGİ: Kalıp Var, Talep Yok": "#AB63FA", "🧊 Blok Kesim (Kalıp Aranmaz)": "#00B5F7"
     }
 
     # Metrikler
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Toplam Ürün Sayısı", len(result))
     c2.metric("⚠️ >%80 Riskli Kalıp", int((result["max_doluluk"] >= 80).sum()))
-    c3.metric("🛑 Eşleşmeyen", int(result["durum"].str.contains("Eşleşmedi").sum()))
+    c3.metric("🛑 Eşleşmeyen Kalıp", int(result["durum"].str.contains("EŞLEŞMEDİ").sum()))
     c4.metric("🧊 Blok Kesim", int(result["is_blok_kesim"].sum()))
 
     st.markdown("---")
@@ -246,36 +283,26 @@ if master_file and ongoru_file:
     doluluk_cols = [f"{ay}_doluluk_%" for ay in AYLAR]
 
     with tab_dash:
-        colA, colB = st.columns(2)
-        with colA:
-            st.subheader("Sistemdeki Tüm Kalıpların Dağılımı")
+        st.subheader("Sistemdeki Tüm Kalıpların Dağılımı")
+        # Bar grafiği kaldırıldı, sadece Pie Chart ortalanarak konuldu
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
             durum_counts = result["durum"].value_counts().reset_index()
             durum_counts.columns = ["Durum", "Adet"]
             fig_pie_genel = px.pie(durum_counts, names="Durum", values="Adet", color="Durum", 
                                    color_discrete_map=COLOR_MAP, hole=0.4)
+            fig_pie_genel.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
             st.plotly_chart(fig_pie_genel, use_container_width=True)
-            
-        with colB:
-            st.subheader("En Kritik 15 Kalıp (Maksimum Doluluğa Göre)")
-            kritik = result[(result["max_doluluk"] >= 80) & (result["durum"] != "Blok Kesim")].nlargest(15, "max_doluluk")
-            if not kritik.empty:
-                fig_bar_genel = px.bar(kritik, x="kod", y="max_doluluk", color="durum", text="max_doluluk",
-                                       color_discrete_map=COLOR_MAP, labels={"kod": "Kalıp", "max_doluluk": "Maks. Doluluk %"})
-                fig_bar_genel.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-                st.plotly_chart(fig_bar_genel, use_container_width=True)
-            else:
-                st.success("Sistemde %80 doluluğu aşan riskli kalıp bulunmuyor.")
 
     with tab_aylik:
         st.subheader("Aylara Göre Darboğaz ve Pasta Grafiği")
         secili_ay = st.selectbox("Analiz Edilecek Ayı Seçin:", AYLAR)
         
         ay_col = f"{secili_ay}_doluluk_%"
-        ay_df = result[(result["kalip_var"]) & (result["talep_var"]) & (result["durum"] != "Blok Kesim")].copy()
+        ay_df = result[(result["kalip_var"]) & (result["talep_var"]) & (result["durum"] != "🧊 Blok Kesim (Kalıp Aranmaz)")].copy()
         
-        # O aya özel risk ataması
         def ay_risk(val):
-            if pd.isna(val) or val == 0: return "Talep Yok"
+            if pd.isna(val) or val == 0: return "BİLGİ: Kalıp Var, Talep Yok"
             elif val > 100: return "Kritik (>%100)"
             elif val >= 90: return "Uyarı (%90-100)"
             elif val >= 80: return "Dikkat (%80-90)"
@@ -305,19 +332,30 @@ if master_file and ongoru_file:
         st.subheader("Tüm Veri Tablosu")
         st.dataframe(result[["firma", "kod", "tanim", "durum"] + doluluk_cols], width='stretch',
                      column_config={col: st.column_config.NumberColumn(col, format="%.1f%%") for col in doluluk_cols})
+                     
+        st.markdown("---")
+        st.subheader("🛑 Eşleşmeyen Kalıplar (Talep Var, Kalıp Yok)")
+        eslesmeyen_df = result[result["durum"] == "🛑 EŞLEŞMEDİ: Kalıp Bulunamadı"]
+        if not eslesmeyen_df.empty:
+            st.dataframe(eslesmeyen_df[["firma", "kod", "tanim"] + AYLAR], width='stretch')
+        else:
+            st.success("Tüm talepler master liste ile başarıyla eşleşti!")
 
     with tab_blok:
-        st.subheader("🧊 Blok Kesim Ürünler")
+        st.subheader("🧊 Blok Kesim Ürünler (Eşleşme Aranmayanlar)")
+        st.info("Bu ürünler Excel'deki notlara istinaden blok kesim olarak algılanmış ve Eşleşmeyenler listesinden çıkarılmıştır.")
         blok_df = result[result["is_blok_kesim"] == True]
         if not blok_df.empty:
-            st.dataframe(blok_df[["firma", "kod", "tanim", "durum"] + AYLAR], width='stretch')
+            st.dataframe(blok_df[["firma", "kod", "tanim"] + AYLAR], width='stretch')
         else:
-            st.success("Blok kesim içeren not bulunamadı.")
+            st.success("Sistemde Blok kesim içeren not bulunamadı.")
 
     with tab_indir:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             result.to_excel(writer, sheet_name="Kapasite Analizi", index=False)
+            if not eslesmeyen_df.empty:
+                eslesmeyen_df.to_excel(writer, sheet_name="Eslesmeyenler", index=False)
             if not blok_df.empty:
                 blok_df.to_excel(writer, sheet_name="Blok Kesimler", index=False)
         st.download_button("Tüm Sonuçları Excel Olarak İndir", data=buffer.getvalue(),
