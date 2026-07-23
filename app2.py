@@ -380,25 +380,34 @@ with tab1:
 
     st.divider()
     st.subheader("📅 Aylara Göre Dağılım")
-    st.caption("Her ayın kendi doluluk dağılımı, ayrı ayrı:")
-    for satir_baslangic in range(0, len(AYLAR), 3):
-        cols = st.columns(3)
-        for i, ay in enumerate(AYLAR[satir_baslangic:satir_baslangic + 3]):
-            with cols[i]:
-                ay_bucket = hesaplanabilenler[f"{ay}_doluluk_%"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
-                ay_bucket = ay_bucket[ay_bucket > 0].reset_index()
-                ay_bucket.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
-                if ay_bucket.empty:
-                    st.info(f"{ay}: veri yok")
-                    continue
-                fig_ay = px.pie(
-                    ay_bucket, names="Doluluk Aralığı", values="Ürün Sayısı",
-                    color="Doluluk Aralığı", color_discrete_map=BUCKET_RENK, hole=0.35, title=ay,
-                )
-                fig_ay.update_traces(sort=False, textinfo="value")
-                fig_ay.update_layout(showlegend=False, margin=dict(t=40, b=0, l=0, r=0), height=260)
-                st.plotly_chart(fig_ay, width="stretch")
-    st.caption("Renk skalası üstteki genel grafikle aynı: yeşil düşük doluluk, kırmızı %100 üstü.")
+    st.caption("Görmek istediğin ay(lar)ı seç — her biri BASAŞ ve MEFA için ayrı ayrı gösterilir.")
+
+    secili_aylar = st.multiselect("Ay seç", AYLAR, default=[], key="ay_secim_tab1")
+
+    if not secili_aylar:
+        st.info("👆 Yukarıdan en az bir ay seçince, o ayın firma bazlı dağılımı burada görünecek.")
+    else:
+        for ay in secili_aylar:
+            st.markdown(f"**{ay}**")
+            cols = st.columns(len(FIRMALAR))
+            for firma, kolon in zip(FIRMALAR, cols):
+                with kolon:
+                    alt_firma = hesaplanabilenler[hesaplanabilenler["firma"] == firma]
+                    ay_bucket = alt_firma[f"{ay}_doluluk_%"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
+                    ay_bucket = ay_bucket[ay_bucket > 0].reset_index()
+                    ay_bucket.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
+                    if ay_bucket.empty:
+                        st.info(f"{firma}: veri yok")
+                        continue
+                    fig_ay = px.pie(
+                        ay_bucket, names="Doluluk Aralığı", values="Ürün Sayısı",
+                        color="Doluluk Aralığı", color_discrete_map=BUCKET_RENK, hole=0.35, title=firma,
+                    )
+                    fig_ay.update_traces(sort=False, textinfo="value")
+                    fig_ay.update_layout(showlegend=False, margin=dict(t=40, b=0, l=0, r=0), height=260)
+                    st.plotly_chart(fig_ay, width="stretch", key=f"pie_{ay}_{firma}")
+            st.divider()
+        st.caption("Renk skalası üstteki genel grafikle aynı: yeşil düşük doluluk, kırmızı %100 üstü.")
 
 # ---- TAB 2: Toplam Süre (bar chart + hesaplama açıklaması) ----
 with tab2:
