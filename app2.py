@@ -405,50 +405,47 @@ ust_kalip, ust_makine, ust_indir = st.tabs(["🔧 Kalıp Doluluk", "🏭 Makine 
 # ============================================================================
 with ust_kalip:
     k_tab1, k_tab2, k_tab3, k_tab4, k_tab5 = st.tabs(
-        ["📊 Genel Dağılım", "🚨 Acil (%80+)", "🏢 Firma Bazlı En Dolu 10", "🔎 Tüm Kalıpları Ara", "❓ Hesaplanamayanlar"]
+        ["📅 Aylara Göre Dağılım", "🚨 Acil (%80+)", "🏢 Firma Bazlı En Dolu 10", "🔎 Tüm Kalıpları Ara", "❓ Hesaplanamayanlar"]
     )
 
-    # ---- Genel Dağılım (üstte genel pasta, altta ayrı bölümde aylık pasta grid) ----
+    # ---- Aylara Göre Dağılım — firma bazında ayrı, seçilen aylar ----
     with k_tab1:
-        st.write(f"Doluluğu hesaplanabilen **{n_hesaplanabilir}** ürünün, 6 aylık dönemdeki EN YOĞUN ayına göre dağılımı:")
-        bucket_counts = hesaplanabilenler["max_doluluk"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
-        bucket_counts = bucket_counts[bucket_counts > 0].reset_index()
-        bucket_counts.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
-        if not bucket_counts.empty:
-            fig = px.pie(
-                bucket_counts, names="Doluluk Aralığı", values="Ürün Sayısı",
-                color="Doluluk Aralığı", color_discrete_map=BUCKET_RENK, hole=0.35,
-                category_orders={"Doluluk Aralığı": BUCKET_SIRASI},
-            )
-            fig.update_traces(sort=False)
-            st.plotly_chart(fig, width="stretch")
+        st.subheader("📅 Aylara Göre Doluluk Dağılımı")
+        secilen_aylar = st.multiselect("Hangi ayları görmek istersin?", AYLAR, default=AYLAR)
+
+        if not secilen_aylar:
+            st.info("Görmek istediğin en az bir ay seç.")
+        else:
+            for firma in FIRMALAR:
+                st.markdown(f"### {firma}")
+                alt = hesaplanabilenler[hesaplanabilenler["firma"] == firma]
+                if alt.empty:
+                    st.info("Veri yok.")
+                    continue
+                for satir_baslangic in range(0, len(secilen_aylar), 3):
+                    cols = st.columns(3)
+                    for i, ay in enumerate(secilen_aylar[satir_baslangic:satir_baslangic + 3]):
+                        with cols[i]:
+                            ay_bucket = alt[f"{ay}_doluluk_%"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
+                            ay_bucket = ay_bucket[ay_bucket > 0].reset_index()
+                            ay_bucket.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
+                            if ay_bucket.empty:
+                                st.info(f"{ay}: veri yok")
+                                continue
+                            fig_ay = px.pie(
+                                ay_bucket, names="Doluluk Aralığı", values="Ürün Sayısı",
+                                color="Doluluk Aralığı", color_discrete_map=BUCKET_RENK, hole=0.35, title=ay,
+                            )
+                            fig_ay.update_traces(sort=False, textinfo="value")
+                            fig_ay.update_layout(showlegend=False, margin=dict(t=40, b=0, l=0, r=0), height=260)
+                            st.plotly_chart(fig_ay, width="stretch")
+                st.divider()
 
         st.caption(
-            f"Not: {n_tedarikci + n_blok} ürün bu grafiğe dahil değil (❓ Hesaplanamayanlar sekmesine bak) "
-            "çünkü ya kalıbı bulunamadı ya da blok kesimden üretiliyor."
+            f"Not: {n_tedarikci + n_blok} ürün bu grafiklere dahil değil (❓ Hesaplanamayanlar sekmesine bak) "
+            "çünkü ya kalıbı bulunamadı ya da blok kesimden üretiliyor. "
+            "Renkler: yeşil düşük doluluk, kırmızı %100 üstü."
         )
-
-        st.divider()
-        st.subheader("📅 Aylara Göre Dağılım")
-        st.caption("Her ayın kendi doluluk dağılımı, ayrı ayrı:")
-        for satir_baslangic in range(0, len(AYLAR), 3):
-            cols = st.columns(3)
-            for i, ay in enumerate(AYLAR[satir_baslangic:satir_baslangic + 3]):
-                with cols[i]:
-                    ay_bucket = hesaplanabilenler[f"{ay}_doluluk_%"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
-                    ay_bucket = ay_bucket[ay_bucket > 0].reset_index()
-                    ay_bucket.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
-                    if ay_bucket.empty:
-                        st.info(f"{ay}: veri yok")
-                        continue
-                    fig_ay = px.pie(
-                        ay_bucket, names="Doluluk Aralığı", values="Ürün Sayısı",
-                        color="Doluluk Aralığı", color_discrete_map=BUCKET_RENK, hole=0.35, title=ay,
-                    )
-                    fig_ay.update_traces(sort=False, textinfo="value")
-                    fig_ay.update_layout(showlegend=False, margin=dict(t=40, b=0, l=0, r=0), height=260)
-                    st.plotly_chart(fig_ay, width="stretch")
-        st.caption("Renk skalası üstteki genel grafikle aynı: yeşil düşük doluluk, kırmızı %100 üstü.")
 
     # ---- Acil (%80 ve üzeri) ----
     with k_tab2:
