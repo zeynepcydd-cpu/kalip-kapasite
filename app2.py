@@ -408,14 +408,24 @@ with tab2:
     sure_satirlari = []
     for firma in FIRMALAR:
         alt = hesaplanabilenler[hesaplanabilenler["firma"] == firma]
+        makine_sayisi = master_df[master_df["firma"] == firma]["plaka"].nunique()
+        makine_sayisi = max(makine_sayisi, 1)
         for ay in AYLAR:
             kapasite_deger = alt[f"{ay}_kapasite_saat"].mean()
+            kapasite_tek = 0 if pd.isna(kapasite_deger) else kapasite_deger
             sure_satirlari.append({
                 "Ay": ay, "Firma": firma,
                 "İhtiyaç Saat": alt[f"{ay}_ihtiyac_saat"].sum(),
-                "Kapasite Saat": 0 if pd.isna(kapasite_deger) else kapasite_deger,
+                "Kapasite Saat": kapasite_tek * makine_sayisi,
+                "Makine Sayısı": makine_sayisi,
             })
     sure_df = pd.DataFrame(sure_satirlari)
+    st.caption(
+        f"Kapasite Saat burada **makine sayısıyla çarpılmış** toplam kapasiteyi gösteriyor "
+        f"(BASAŞ: {master_df[master_df['firma']=='BASAŞ']['plaka'].nunique()} makine, "
+        f"MEFA: {master_df[master_df['firma']=='MEFA']['plaka'].nunique()} makine — "
+        "'Plaka Ebatı' farklı olan her kalıp ayrı bir makine sayıldı)."
+    )
 
     fig_sure = px.bar(
         sure_df, x="Ay", y="İhtiyaç Saat", color="Firma", barmode="group",
@@ -450,7 +460,7 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
         category_orders={"Ay": AYLAR},
     )
     st.plotly_chart(fig_kars, width="stretch")
-    st.caption("Kapasite Saat = İş Günü × Günlük Saat × Verimlilik (sol menüdeki çalışma takviminden gelir).")
+    st.caption("Kapasite Saat = (İş Günü × Günlük Saat × Verimlilik) × Makine Sayısı.")
 
 # ---- TAB 3: Acil (%80 ve üzeri) ----
 with tab3:
@@ -566,7 +576,7 @@ with tab7:
             width="stretch", hide_index=True,
         )
 
-    st.markdown(f"#### 🧊 Blok kesimden gelenler")
+    st.markdown(f"#### 🧊 Blok kesimden gelenler ")
     st.caption("Bu ürünler kalıptan değil, blok kesimden üretiliyor — kapasite hesabına hiç dahil edilmiyor.")
     if hesaplanamayan_blok.empty and blok_df_raw.empty:
         st.success("Bu grupta ürün yok.")
