@@ -405,10 +405,48 @@ with tab2:
     st.subheader("Aylık Toplam Süre İhtiyacı")
     st.write("Firma bazında, her ay toplamda kaç saat kalıp/makine zamanı gerektiği:")
 
+    st.markdown("##### 🔧 Gerçek Makine Sayıları")
+    st.caption(
+        "Master Liste'den her ürünün hangi **Plaka Ebatı**'nda (makine tipi) üretildiğini biliyoruz, "
+        "ama o tipten gerçekte kaç makine olduğunu dosyadan çıkaramıyoruz. Bu sayıyı tahmin etmek "
+        "yanlış sonuç verir — lütfen aşağıya her makine tipi için GERÇEK makine adedini girin."
+    )
+
+    machine_key = "machine_counts_df"
+    plaka_pairs = (
+        master_df[["firma", "plaka"]].drop_duplicates().sort_values(["firma", "plaka"]).reset_index(drop=True)
+    )
+    mevcut_plaka_seti = set(zip(plaka_pairs["firma"], plaka_pairs["plaka"]))
+
+    onceki = st.session_state.get(machine_key)
+    onceki_set = set(zip(onceki["firma"], onceki["plaka"])) if onceki is not None else set()
+    if onceki is None or onceki_set != mevcut_plaka_seti:
+        plaka_pairs["makine_sayisi"] = 1
+        st.session_state[machine_key] = plaka_pairs
+
+    st.session_state[machine_key] = st.data_editor(
+        st.session_state[machine_key],
+        num_rows="fixed",
+        width="stretch",
+        key="machine_editor",
+        column_config={
+            "firma": st.column_config.TextColumn("Firma", disabled=True),
+            "plaka": st.column_config.TextColumn("Plaka Ebatı (Makine Tipi)", disabled=True),
+            "makine_sayisi": st.column_config.NumberColumn("Gerçek Makine Sayısı", min_value=1, step=1),
+        },
+    )
+    machine_counts_df = st.session_state[machine_key]
+
+    if (machine_counts_df["makine_sayisi"] == 1).all():
+        st.warning(
+            "⚠️ Makine sayıları henüz girilmedi — her tip için geçici olarak '1 makine' "
+            "varsayılıyor. Bu gerçek kapasiteyi YANSITMAZ; yukarıdaki tabloyu doldurun."
+        )
+
     sure_satirlari = []
     for firma in FIRMALAR:
         alt = hesaplanabilenler[hesaplanabilenler["firma"] == firma]
-        makine_sayisi = master_df[master_df["firma"] == firma]["plaka"].nunique()
+        makine_sayisi = int(machine_counts_df.loc[machine_counts_df["firma"] == firma, "makine_sayisi"].sum())
         makine_sayisi = max(makine_sayisi, 1)
         for ay in AYLAR:
             kapasite_deger = alt[f"{ay}_kapasite_saat"].mean()
@@ -420,11 +458,12 @@ with tab2:
                 "Makine Sayısı": makine_sayisi,
             })
     sure_df = pd.DataFrame(sure_satirlari)
+    basas_makine = int(machine_counts_df.loc[machine_counts_df["firma"] == "BASAŞ", "makine_sayisi"].sum())
+    mefa_makine = int(machine_counts_df.loc[machine_counts_df["firma"] == "MEFA", "makine_sayisi"].sum())
     st.caption(
-        f"Kapasite Saat burada **makine sayısıyla çarpılmış** toplam kapasiteyi gösteriyor "
-        f"(BASAŞ: {master_df[master_df['firma']=='BASAŞ']['plaka'].nunique()} makine, "
-        f"MEFA: {master_df[master_df['firma']=='MEFA']['plaka'].nunique()} makine — "
-        "'Plaka Ebatı' farklı olan her kalıp ayrı bir makine sayıldı)."
+        f"Kapasite Saat = (bir makinenin aylık kapasitesi) × (o firmadaki GİRDİĞİNİZ toplam makine sayısı). "
+        f"Şu an BASAŞ: {basas_makine} makine, MEFA: {mefa_makine} makine olarak hesaplanıyor "
+        "(yukarıdaki tabloyu güncelleyerek değiştirebilirsiniz)."
     )
 
     fig_sure = px.bar(
@@ -460,7 +499,9 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
         category_orders={"Ay": AYLAR},
     )
     st.plotly_chart(fig_kars, width="stretch")
-    st.caption("Kapasite Saat = (İş Günü × Günlük Saat × Verimlilik) × Makine Sayısı.")
+    st.caption(
+        "Kapasite Saat = (İş Günü × Günlük Saat × Verimlilik) × yukarıda girdiğiniz Gerçek Makine Sayısı."
+    )
 
 # ---- TAB 3: Acil (%80 ve üzeri) ----
 with tab3:
