@@ -485,15 +485,6 @@ with tab4:
             if top10.empty:
                 st.info("Veri yok.")
                 continue
-            fig_top10 = px.bar(
-                top10.sort_values("max_doluluk"), x="max_doluluk", y="kod", orientation="h",
-                text_auto=".0f", labels={"max_doluluk": "Doluluk %", "kod": "Kalıp Kodu"},
-                color="max_doluluk", color_continuous_scale="RdYlGn_r", range_color=[0, 150],
-            )
-            fig_top10.add_vline(x=100, line_dash="dash", line_color="red")
-            fig_top10.update_layout(coloraxis_showscale=False, height=400)
-            st.plotly_chart(fig_top10, width="stretch")
-
             st.dataframe(
                 top10.sort_values("max_doluluk", ascending=False)[["firma", "kod", "tanim", "en_yogun_ay", "max_doluluk"]].rename(columns={
                     "firma": "Firma", "kod": "Kalıp Kodu", "tanim": "Ürün Adı",
