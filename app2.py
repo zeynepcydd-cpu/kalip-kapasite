@@ -57,6 +57,13 @@ def normalize_firma(value) -> str:
         return "MEFA"
     return str(value).strip()
 
+def normalize_plaka(value) -> str:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return "Bilinmiyor"
+    s = re.sub(r"\s+", "", str(value)).upper().replace("X", "*")
+    return s if s else "Bilinmiyor"
+
+
 def normalize_kod(value) -> str:
     s = re.sub(r"\D", "", str(value))
     if len(s) >= 6:
@@ -135,6 +142,7 @@ def load_master(file) -> tuple[pd.DataFrame, list[str]]:
     col_firma = find_col(df, ["FIRMA", "FİRMA"])
     col_cevrim = find_col(df, ["KALIP ÇEVRİM", "KALIP CEVRIM", "ÇEVRİM"])
     col_dv = find_col(df, ["DURAN VARLIK", "DURAN VARLIK NO"])
+    col_plaka = find_col(df, ["PLAKA EBATI", "PLAKA EBADI", "PLAKA"])
 
     required = {"KALIP NO": col_kalip_no, "GOZ ADEDI": col_goz, "FIRMA": col_firma, "Kalıp Çevrim": col_cevrim}
     missing = [k for k, v in required.items() if v is None]
@@ -149,6 +157,7 @@ def load_master(file) -> tuple[pd.DataFrame, list[str]]:
         "firma": df[col_firma].apply(normalize_firma),
         "cevrim": pd.to_numeric(df[col_cevrim], errors="coerce"),
         "duran_varlik": df[col_dv] if col_dv else "",
+        "plaka": df[col_plaka].apply(normalize_plaka) if col_plaka else "Bilinmiyor",
     })
 
     out["parts"] = out["goz_raw"].apply(parse_parts)
@@ -342,30 +351,20 @@ else:
 
 st.divider()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["📊 Genel Dağılım", "🚨 Acil (%80+)", "🔎 Tüm Kalıpları Ara", "❓ Hesaplanamayanlar", "⬇️ İndir"]
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    [
+        "📊 Genel Dağılım", "⏱️ Toplam Süre", "🚨 Acil (%80+)", "🏢 Firma Bazlı En Dolu 10",
+        "🏭 Makine Bazlı Üretim", "🔎 Tüm Kalıpları Ara", "❓ Hesaplanamayanlar", "⬇️ İndir",
+    ]
 )
 
-# ---- TAB 1: Dağılım pasta grafiği (genel + aylık) ----
+# ---- TAB 1: Genel Dağılım (üstte genel pasta, altta AYRI bir bölümde aylık pasta grid) ----
 with tab1:
-    ay_secim = st.selectbox("Hangi ayın dağılımını görmek istersin?", ["Tüm Aylar (en yoğun ay baz alınır)"] + AYLAR)
-
-    if ay_secim == "Tüm Aylar (en yoğun ay baz alınır)":
-        deger_serisi = hesaplanabilenler["max_doluluk"]
-        aciklama = f"Doluluğu hesaplanabilen **{n_hesaplanabilir}** ürünün, 6 aylık dönemdeki EN YOĞUN ayına göre dağılımı:"
-    else:
-        deger_serisi = hesaplanabilenler[f"{ay_secim}_doluluk_%"]
-        aciklama = f"Doluluğu hesaplanabilen **{n_hesaplanabilir}** ürünün, **{ay_secim}** ayındaki dağılımı:"
-
-    st.write(aciklama)
-    bucket_series = deger_serisi.apply(doluluk_bucket)
-    bucket_counts = bucket_series.value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
+    st.write(f"Doluluğu hesaplanabilen **{n_hesaplanabilir}** ürünün, 6 aylık dönemdeki EN YOĞUN ayına göre dağılımı:")
+    bucket_counts = hesaplanabilenler["max_doluluk"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
     bucket_counts = bucket_counts[bucket_counts > 0].reset_index()
     bucket_counts.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
-
-    if bucket_counts.empty:
-        st.info("Gösterilecek veri yok.")
-    else:
+    if not bucket_counts.empty:
         fig = px.pie(
             bucket_counts, names="Doluluk Aralığı", values="Ürün Sayısı",
             color="Doluluk Aralığı", color_discrete_map=BUCKET_RENK, hole=0.35,
@@ -374,25 +373,88 @@ with tab1:
         fig.update_traces(sort=False)
         st.plotly_chart(fig, width="stretch")
 
-    with st.expander("📈 Tüm ayları yan yana karşılaştır"):
-        karsilastir = pd.DataFrame({
-            ay: hesaplanabilenler[f"{ay}_doluluk_%"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
-            for ay in AYLAR
-        }).reindex(BUCKET_SIRASI)
-        fig_bar = px.bar(
-            karsilastir.reset_index().rename(columns={"index": "Doluluk Aralığı"}),
-            x="Doluluk Aralığı", y=AYLAR, barmode="group",
-            category_orders={"Doluluk Aralığı": BUCKET_SIRASI},
-        )
-        st.plotly_chart(fig_bar, width="stretch")
-
     st.caption(
-        f"Not: {n_tedarikci + n_blok} ürün bu grafiklere dahil değil (❓ Hesaplanamayanlar sekmesine bak) "
+        f"Not: {n_tedarikci + n_blok} ürün bu grafiğe dahil değil (❓ Hesaplanamayanlar sekmesine bak) "
         "çünkü ya kalıbı bulunamadı ya da blok kesimden üretiliyor."
     )
 
-# ---- TAB 2: Acil (%80 ve üzeri) ----
+    st.divider()
+    st.subheader("📅 Aylara Göre Dağılım")
+    st.caption("Her ayın kendi doluluk dağılımı, ayrı ayrı:")
+    for satir_baslangic in range(0, len(AYLAR), 3):
+        cols = st.columns(3)
+        for i, ay in enumerate(AYLAR[satir_baslangic:satir_baslangic + 3]):
+            with cols[i]:
+                ay_bucket = hesaplanabilenler[f"{ay}_doluluk_%"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
+                ay_bucket = ay_bucket[ay_bucket > 0].reset_index()
+                ay_bucket.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
+                if ay_bucket.empty:
+                    st.info(f"{ay}: veri yok")
+                    continue
+                fig_ay = px.pie(
+                    ay_bucket, names="Doluluk Aralığı", values="Ürün Sayısı",
+                    color="Doluluk Aralığı", color_discrete_map=BUCKET_RENK, hole=0.35, title=ay,
+                )
+                fig_ay.update_traces(sort=False, textinfo="value")
+                fig_ay.update_layout(showlegend=False, margin=dict(t=40, b=0, l=0, r=0), height=260)
+                st.plotly_chart(fig_ay, width="stretch")
+    st.caption("Renk skalası üstteki genel grafikle aynı: yeşil düşük doluluk, kırmızı %100 üstü.")
+
+# ---- TAB 2: Toplam Süre (bar chart + hesaplama açıklaması) ----
 with tab2:
+    st.subheader("Aylık Toplam Süre İhtiyacı")
+    st.write("Firma bazında, her ay toplamda kaç saat kalıp/makine zamanı gerektiği:")
+
+    sure_satirlari = []
+    for firma in FIRMALAR:
+        alt = hesaplanabilenler[hesaplanabilenler["firma"] == firma]
+        for ay in AYLAR:
+            kapasite_deger = alt[f"{ay}_kapasite_saat"].mean()
+            sure_satirlari.append({
+                "Ay": ay, "Firma": firma,
+                "İhtiyaç Saat": alt[f"{ay}_ihtiyac_saat"].sum(),
+                "Kapasite Saat": 0 if pd.isna(kapasite_deger) else kapasite_deger,
+            })
+    sure_df = pd.DataFrame(sure_satirlari)
+
+    fig_sure = px.bar(
+        sure_df, x="Ay", y="İhtiyaç Saat", color="Firma", barmode="group",
+        category_orders={"Ay": AYLAR}, text_auto=".0f",
+    )
+    st.plotly_chart(fig_sure, width="stretch")
+
+    with st.expander("ℹ️ Bu grafik nasıl hesaplanıyor?"):
+        st.markdown(
+            """
+Her ürün için önce **birleşik üretim hızı** bulunur — o ürünü üretebilen tüm kalıpların
+(Kalıp Adet ÷ Kalıp Çevrim) değerleri toplanarak elde edilir (çevrim süreleri farklı
+olsa bile doğru sonuç verir):
+
+`Birleşik Hız = Σ (Kalıp Adet / Kalıp Çevrim)`  → parça/saniye
+
+Sonra o ayki talebi karşılamak için gereken süre hesaplanır:
+
+`İhtiyaç Saat = Talep Adedi / (Birleşik Hız × 3600)`
+
+Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat toplamıdır**:
+
+`Toplam İhtiyaç Saat = Σ (her ürünün kendi İhtiyaç Saati)`
+            """
+        )
+
+    st.divider()
+    st.subheader("İhtiyaç Saat / Kapasite Saat Karşılaştırması")
+    fig_kars = px.bar(
+        sure_df.melt(id_vars=["Ay", "Firma"], value_vars=["İhtiyaç Saat", "Kapasite Saat"], var_name="Tür", value_name="Saat"),
+        x="Ay", y="Saat", color="Tür", barmode="group", facet_col="Firma",
+        category_orders={"Ay": AYLAR},
+    )
+    st.plotly_chart(fig_kars, width="stretch")
+    st.caption("Kapasite Saat = İş Günü × Günlük Saat × Verimlilik (sol menüdeki çalışma takviminden gelir).")
+
+# ---- TAB 3: Acil (%80 ve üzeri) ----
+with tab3:
+
     st.write("Doluluk oranı %80 ve üzerinde olan, yakından takip edilmesi gereken ürünler:")
     acil = hesaplanabilenler[hesaplanabilenler["max_doluluk"] >= 80].sort_values("max_doluluk", ascending=False)
     if acil.empty:
@@ -412,10 +474,53 @@ with tab2:
         )
         st.caption("İpucu: Doluluk %100'ü geçiyorsa, o kalıp elindeki süre içinde talebi karşılayamıyor demektir.")
 
-# ---- TAB 3: Arama ----
-with tab3:
+# ---- TAB 4: Firma Bazlı En Dolu 10 ----
+with tab4:
+    st.write("Her firmanın en dolu (en yoğun) 10 kalıbı, ayrı ayrı:")
+    col_basas, col_mefa = st.columns(2)
+    for firma, kolon in zip(FIRMALAR, [col_basas, col_mefa]):
+        with kolon:
+            st.markdown(f"#### {firma}")
+            top10 = hesaplanabilenler[hesaplanabilenler["firma"] == firma].nlargest(10, "max_doluluk")
+            if top10.empty:
+                st.info("Veri yok.")
+                continue
+            fig_top10 = px.bar(
+                top10.sort_values("max_doluluk"), x="max_doluluk", y="kod", orientation="h",
+                text_auto=".0f", labels={"max_doluluk": "Doluluk %", "kod": "Kalıp Kodu"},
+                color="max_doluluk", color_continuous_scale="RdYlGn_r", range_color=[0, 150],
+            )
+            fig_top10.add_vline(x=100, line_dash="dash", line_color="red")
+            fig_top10.update_layout(coloraxis_showscale=False, height=400)
+            st.plotly_chart(fig_top10, width="stretch")
+
+# ---- TAB 5: Makine Bazlı Üretim (Plaka Ebatı = Makine Tipi) ----
+with tab5:
+    st.write(
+        "Her farklı **Plaka Ebatı**, bir makine tipini temsil eder. "
+        "Aşağıda, her firmanın hangi makinede kaç farklı ürün ürettiği gösteriliyor."
+    )
+    col_b, col_m = st.columns(2)
+    for firma, kolon in zip(FIRMALAR, [col_b, col_m]):
+        with kolon:
+            st.markdown(f"#### {firma}")
+            alt_master = master_df[master_df["firma"] == firma]
+            makine_sayim = alt_master.groupby("plaka")["kod"].nunique().sort_values(ascending=False).reset_index()
+            makine_sayim.columns = ["Makine (Plaka Ebatı)", "Ürün Sayısı"]
+            if makine_sayim.empty:
+                st.info("Veri yok.")
+                continue
+            fig_makine = px.bar(
+                makine_sayim, x="Makine (Plaka Ebatı)", y="Ürün Sayısı", text_auto=True,
+            )
+            st.plotly_chart(fig_makine, width="stretch")
+    st.caption("Not: Plaka Ebatı bilgisi Master Liste'den geliyor. Aynı ölçüdeki farklı yazımlar (örn. '817*980' / '817x980') otomatik birleştirildi.")
+
+# ---- TAB 6: Arama ----
+with tab6:
     arama = st.text_input("🔎 Kalıp kodu veya ürün adı yaz", placeholder="örn: 484070 veya köşe takviye")
     firma_secim = st.multiselect("Firma", FIRMALAR, default=FIRMALAR)
+
 
     gosterilecek = hesaplanabilenler[hesaplanabilenler["firma"].isin(firma_secim)]
     if arama:
@@ -441,8 +546,8 @@ with tab3:
     )
     st.caption("Bu liste sadece doluluğu hesaplanabilen ürünleri gösterir. Diğerleri için '❓ Hesaplanamayanlar' sekmesine bak.")
 
-# ---- TAB 4: Hesaplanamayanlar (tedarikçi teyidi + blok kesim, ayrı ayrı) ----
-with tab4:
+# ---- TAB 7: Hesaplanamayanlar (tedarikçi teyidi + blok kesim, ayrı ayrı) ----
+with tab7:
     st.write("Bu ürünlerin doluluk oranı hesaplanamıyor — nedenleri farklı olduğu için iki ayrı grupta gösteriliyor.")
 
     st.markdown(f"#### 🔵 Tedarikçi ile doğrulanması gerekenler ({n_tedarikci})")
@@ -469,8 +574,8 @@ with tab4:
             width="stretch", hide_index=True,
         )
 
-# ---- TAB 5: İndir ----
-with tab5:
+# ---- TAB 8: İndir ----
+with tab8:
     st.write("Hesaplanan tüm sonuçları Excel dosyası olarak indirebilirsin — her grup ayrı sayfada.")
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
