@@ -629,6 +629,10 @@ with ust_makine:
             category_orders={"Ay": AYLAR}, text_auto=".0f",
         )
         st.plotly_chart(fig_sure, width="stretch")
+        st.caption(
+            "Bu grafik sadece toplam iş yükü göstergesidir (tüm makinelerin ihtiyacı toplanmış); "
+            "kapasiteyle karşılaştırma için aşağıdaki 'Makine Bazında' grafiğe bak."
+        )
 
         with st.expander("ℹ️ Bu grafik nasıl hesaplanıyor?"):
             st.markdown(
@@ -650,14 +654,39 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
             )
 
         st.divider()
-        st.subheader("İhtiyaç Saat / Kapasite Saat Karşılaştırması")
-        fig_kars = px.bar(
-            sure_df.melt(id_vars=["Ay", "Firma"], value_vars=["İhtiyaç Saat", "Kapasite Saat"], var_name="Tür", value_name="Saat"),
-            x="Ay", y="Saat", color="Tür", barmode="group", facet_col="Firma",
-            category_orders={"Ay": AYLAR},
+        st.subheader("İhtiyaç Saat / Kapasite Saat Karşılaştırması — Makine Bazında")
+        st.caption(
+            "⚠️ Her parça her makinede üretilmiyor, bu yüzden karşılaştırma firma toplamı değil, "
+            "**her makinenin kendi ihtiyacı kendi kapasitesine karşı** gösteriliyor."
         )
-        st.plotly_chart(fig_kars, width="stretch")
-        st.caption("Kapasite Saat = (İş Günü × Günlük Saat × Verimlilik) × yukarıda girdiğiniz Gerçek Makine Sayısı.")
+
+        makine_doluluk_karsilastirma = compute_machine_utilization(
+            master_df, hesaplanabilenler, st.session_state.calendar_df, machine_counts_df
+        )
+
+        firma_secim_kars = st.radio("Firma seç", FIRMALAR, horizontal=True, key="kars_firma_secim")
+        alt_makine = makine_doluluk_karsilastirma[makine_doluluk_karsilastirma["firma"] == firma_secim_kars]
+
+        if alt_makine.empty:
+            st.info("Veri yok.")
+        else:
+            uzun = alt_makine.melt(
+                id_vars=["plaka", "ay"], value_vars=["ihtiyac_saat", "kapasite_saat"],
+                var_name="Tür", value_name="Saat",
+            )
+            uzun["Tür"] = uzun["Tür"].map({"ihtiyac_saat": "İhtiyaç Saat", "kapasite_saat": "Kapasite Saat"})
+            n_makine = alt_makine["plaka"].nunique()
+            fig_kars = px.bar(
+                uzun, x="ay", y="Saat", color="Tür", barmode="group",
+                facet_col="plaka", facet_col_wrap=4,
+                category_orders={"ay": AYLAR},
+                labels={"ay": "Ay"},
+                height=250 * (-(-n_makine // 4)),  # 4'lü satırlar halinde otomatik yükseklik
+            )
+            fig_kars.for_each_annotation(lambda a: a.update(text=a.text.replace("plaka=", "")))
+            fig_kars.update_xaxes(matches=None)
+            st.plotly_chart(fig_kars, width="stretch")
+        st.caption("Kapasite Saat (her makine için) = (İş Günü × Günlük Saat × Verimlilik) × o makinenin Gerçek Makine Sayısı.")
 
     # ---- Makine Bazlı Ürün Sayısı (kaç farklı ürün) ----
     with m_tab2:
