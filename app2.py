@@ -67,37 +67,58 @@ def normalize_kod(value) -> str:
 # Blok Kesim çıkarma
 # --------------------------------------------------------------------------
 
-def extract_blok_kesim_list(file) -> pd.DataFrame:
-    raw_blok_list = []
-    try:
-        xls = pd.ExcelFile(file)
-        sheet_to_read = 'üretim_adedi' if 'üretim_adedi' in xls.sheet_names else xls.sheet_names[0]
-        df = pd.read_excel(file, sheet_name=sheet_to_read)
+def _extract_blok_kesim_from_sheet(df: pd.DataFrame) -> list[dict]:
+    """Tek bir sayfada 'blok kesim' geçen satırları çıkarır."""
+    malzeme_col = find_col(df, ["MALZEME"])
+    firma_col = find_col(df, ["FIRMA", "FİRMA"])
+    tanim_col = find_col(df, ["TANIM", "KALIP_TANIMI", "KALIP TANIMI"])
+    if malzeme_col is None or firma_col is None:
+        return []
 
-        malzeme_col = find_col(df, ["MALZEME"])
-        firma_col = find_col(df, ["FIRMA", "FİRMA"])
-        tanim_col = find_col(df, ["TANIM", "TANIM"])
-        ay_cols = [c for c in df.columns if re.fullmatch(r"\d{5,6}", str(c).strip()) or pd.api.types.is_numeric_dtype(df[c])][:6]
+    used = {malzeme_col, firma_col, tanim_col} - {None}
+    candidate_cols = [c for c in df.columns if c not in used]
+    ay_cols = [c for c in candidate_cols if re.fullmatch(r"\d{5,6}", str(c).strip()) or pd.api.types.is_numeric_dtype(df[c])][:6]
 
-        if malzeme_col and firma_col:
-            mask = pd.Series(False, index=df.index)
-            for col in df.columns:
-                mask |= df[col].astype(str).str.contains(r"blok\s*kesim", case=False, na=False)
-            blok_df = df[mask]
+    mask = pd.Series(False, index=df.index)
+    for col in df.columns:
+        mask |= df[col].astype(str).str.contains(r"blok\s*kesim", case=False, na=False)
+    blok_df = df[mask]
 
-            for _, row in blok_df.iterrows():
-                f = normalize_firma(row[firma_col])
-                orijinal_kod = str(row[malzeme_col]).strip()
-                k = normalize_kod(row[malzeme_col])
-                tanim = row[tanim_col] if tanim_col else ""
-                ay_degerleri = {AYLAR[i]: (row[ay_cols[i]] if i < len(ay_cols) else 0) for i in range(len(AYLAR))}
-                raw_blok_list.append({
-                    "firma": f, "6_haneli_kod": k, "Orijinal_Malzeme_Kodu": orijinal_kod,
-                    "tanim": tanim, **ay_degerleri, "is_blok_kesim": True
-                })
-    except Exception:
-        pass
-    return pd.DataFrame(raw_blok_list)
+    out = []
+    for _, row in blok_df.iterrows():
+        f = normalize_firma(row[firma_col])
+        orijinal_kod = str(row[malzeme_col]).strip()
+        k = normalize_kod(row[malzeme_col])
+        tanim = row[tanim_col] if tanim_col else ""
+        ay_degerleri = {AYLAR[i]: (row[ay_cols[i]] if i < len(ay_cols) else 0) for i in range(len(AYLAR))}
+        out.append({
+            "firma": f, "6_haneli_kod": k, "Orijinal_Malzeme_Kodu": orijinal_kod,
+            "tanim": tanim, **ay_degerleri, "is_blok_kesim": True,
+        })
+    return out
+
+
+def extract_blok_kesim_list(*files) -> pd.DataFrame:
+    """Yüklenen tüm dosyaların TÜM sayfalarını tarayıp 'blok kesim' geçen satırları toplar."""
+    all_rows = []
+    for file in files:
+        if file is None:
+            continue
+        try:
+            xls = pd.ExcelFile(file)
+            for sheet in xls.sheet_names:
+                try:
+                    df = pd.read_excel(file, sheet_name=sheet)
+                    all_rows.extend(_extract_blok_kesim_from_sheet(df))
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    result = pd.DataFrame(all_rows)
+    if not result.empty:
+        result = result.drop_duplicates(subset=["firma", "6_haneli_kod", "Orijinal_Malzeme_Kodu"])
+    return result
 
 # --------------------------------------------------------------------------
 # Dosya okuma
@@ -283,7 +304,7 @@ if not (master_file and ongoru_file):
 
 # ---- Hesaplama ----
 with st.spinner("Hesaplanıyor..."):
-    blok_df_raw = extract_blok_kesim_list(master_file)
+    blok_df_raw = extract_blok_kesim_list(master_file, ongoru_file)
     master_df, _ = load_master(master_file)
     ongoru_df, _ = load_ongoru(ongoru_file)
     result = compute_capacity(master_df, ongoru_df, blok_df_raw, st.session_state.calendar_df)
@@ -325,10 +346,20 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["📊 Genel Dağılım", "🚨 Acil (%80+)", "🔎 Tüm Kalıpları Ara", "❓ Hesaplanamayanlar", "⬇️ İndir"]
 )
 
-# ---- TAB 1: Dağılım pasta grafiği ----
+# ---- TAB 1: Dağılım pasta grafiği (genel + aylık) ----
 with tab1:
-    st.write(f"Doluluğu hesaplanabilen **{n_hesaplanabilir}** ürünün, doluluk oranına göre dağılımı:")
-    bucket_counts = hesaplanabilenler["bucket"].value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
+    ay_secim = st.selectbox("Hangi ayın dağılımını görmek istersin?", ["Tüm Aylar (en yoğun ay baz alınır)"] + AYLAR)
+
+    if ay_secim == "Tüm Aylar (en yoğun ay baz alınır)":
+        deger_serisi = hesaplanabilenler["max_doluluk"]
+        aciklama = f"Doluluğu hesaplanabilen **{n_hesaplanabilir}** ürünün, 6 aylık dönemdeki EN YOĞUN ayına göre dağılımı:"
+    else:
+        deger_serisi = hesaplanabilenler[f"{ay_secim}_doluluk_%"]
+        aciklama = f"Doluluğu hesaplanabilen **{n_hesaplanabilir}** ürünün, **{ay_secim}** ayındaki dağılımı:"
+
+    st.write(aciklama)
+    bucket_series = deger_serisi.apply(doluluk_bucket)
+    bucket_counts = bucket_series.value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
     bucket_counts = bucket_counts[bucket_counts > 0].reset_index()
     bucket_counts.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
 
@@ -342,8 +373,21 @@ with tab1:
         )
         fig.update_traces(sort=False)
         st.plotly_chart(fig, width="stretch")
+
+    with st.expander("📈 Tüm ayları yan yana karşılaştır"):
+        karsilastir = pd.DataFrame({
+            ay: hesaplanabilenler[f"{ay}_doluluk_%"].apply(doluluk_bucket).value_counts().reindex(BUCKET_SIRASI).fillna(0).astype(int)
+            for ay in AYLAR
+        }).reindex(BUCKET_SIRASI)
+        fig_bar = px.bar(
+            karsilastir.reset_index().rename(columns={"index": "Doluluk Aralığı"}),
+            x="Doluluk Aralığı", y=AYLAR, barmode="group",
+            category_orders={"Doluluk Aralığı": BUCKET_SIRASI},
+        )
+        st.plotly_chart(fig_bar, width="stretch")
+
     st.caption(
-        f"Not: {n_tedarikci + n_blok} ürün bu grafiğe dahil değil (❓ Hesaplanamayanlar sekmesine bak) "
+        f"Not: {n_tedarikci + n_blok} ürün bu grafiklere dahil değil (❓ Hesaplanamayanlar sekmesine bak) "
         "çünkü ya kalıbı bulunamadı ya da blok kesimden üretiliyor."
     )
 
