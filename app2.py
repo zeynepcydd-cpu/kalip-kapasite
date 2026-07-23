@@ -494,6 +494,19 @@ with tab4:
             fig_top10.update_layout(coloraxis_showscale=False, height=400)
             st.plotly_chart(fig_top10, width="stretch")
 
+            st.dataframe(
+                top10.sort_values("max_doluluk", ascending=False)[["firma", "kod", "tanim", "en_yogun_ay", "max_doluluk"]].rename(columns={
+                    "firma": "Firma", "kod": "Kalıp Kodu", "tanim": "Ürün Adı",
+                    "en_yogun_ay": "Ay", "max_doluluk": "Doluluk %",
+                }),
+                width="stretch", hide_index=True,
+                column_config={
+                    "Doluluk %": st.column_config.ProgressColumn(
+                        "Doluluk %", format="%.0f%%", min_value=0, max_value=max(200, int(top10["max_doluluk"].max()) + 20)
+                    )
+                },
+            )
+
 # ---- TAB 5: Makine Bazlı Üretim (Plaka Ebatı = Makine Tipi) ----
 with tab5:
     st.write(
