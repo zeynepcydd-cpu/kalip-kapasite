@@ -554,7 +554,7 @@ with tab6:
 with tab7:
     st.write("Bu ürünlerin doluluk oranı hesaplanamıyor — nedenleri farklı olduğu için iki ayrı grupta gösteriliyor.")
 
-    st.markdown(f"#### 🔵 Tedarikçi ile doğrulanması gerekenler ({n_tedarikci})")
+    st.markdown(f"#### 🔵 Tedarikçi ile doğrulanması gerekenler ")
     st.caption("Bu ürünler için talep var ama Kalıp Listesi'nde eşleşen bir kalıp bulunamadı. Kalıp bilgisi tedarikçiden/kalıphaneden teyit edilmeli.")
     if hesaplanamayan_tedarikci.empty:
         st.success("Bu grupta ürün yok.")
@@ -566,7 +566,7 @@ with tab7:
             width="stretch", hide_index=True,
         )
 
-    st.markdown(f"#### 🧊 Blok kesimden gelenler ({n_blok})")
+    st.markdown(f"#### 🧊 Blok kesimden gelenler")
     st.caption("Bu ürünler kalıptan değil, blok kesimden üretiliyor — kapasite hesabına hiç dahil edilmiyor.")
     if hesaplanamayan_blok.empty and blok_df_raw.empty:
         st.success("Bu grupta ürün yok.")
