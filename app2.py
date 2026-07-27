@@ -1,8 +1,8 @@
 """
 Strafor Kalıp Kapasite Hesaplama — Streamlit Uygulaması (v5 - Sade Arayüz)
 =========================================================
-Hiç Excel/formül bilmeyen biri de kullanabilsin diye arayüz sadeleştirildi.
-Hesap mantığı (v4) aynen korundu, sadece ekran tasarımı basitleştirildi.
+Kullanıcı deneyimini iyileştirmek amacıyla arayüz sadeleştirilmiştir.
+Hesaplama algoritması (v4) korunmuş, yalnızca ekran tasarımı güncellenmiştir.
 """
 
 import re
@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-st.set_page_config(page_title="Kalıp Kapasite Kontrolü", layout="wide", page_icon="🏭")
+st.set_page_config(page_title="Kalıp Kapasite Kontrolü", layout="wide")
 
 AYLAR = ["Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 FIRMALAR = ["BASAŞ", "MEFA"]
@@ -252,15 +252,15 @@ def compute_capacity(master_df, ongoru_df, blok_kesim_df, calendar_df):
     merged["max_doluluk"] = merged[doluluk_cols].max(axis=1).fillna(0)
     merged["en_yogun_ay"] = merged[doluluk_cols].fillna(-1).idxmax(axis=1).str.replace("_doluluk_%", "", regex=False)
 
-    merged["durum"] = "🟢 Normal"
-    merged.loc[merged["talep_var"] & ~merged["kalip_var"], "durum"] = "🔵 Kalıp bulunamadı"
-    merged.loc[~merged["talep_var"] & merged["kalip_var"], "durum"] = "⚪ Talep yok"
-    merged.loc[merged["is_blok_kesim"] == True, "durum"] = "🧊 Blok kesim"
+    merged["durum"] = "Normal"
+    merged.loc[merged["talep_var"] & ~merged["kalip_var"], "durum"] = "Kalıp bulunamadı"
+    merged.loc[~merged["talep_var"] & merged["kalip_var"], "durum"] = "Talep yok"
+    merged.loc[merged["is_blok_kesim"] == True, "durum"] = "Blok kesim"
 
-    normal_mask = merged["durum"] == "🟢 Normal"
-    merged.loc[normal_mask & (merged["max_doluluk"] > 100), "durum"] = "🔴 Kapasite Aşıldı"
-    merged.loc[normal_mask & (merged["max_doluluk"] <= 100) & (merged["max_doluluk"] >= 90), "durum"] = "🟠 Sınırda"
-    merged.loc[normal_mask & (merged["max_doluluk"] < 90) & (merged["max_doluluk"] >= 80), "durum"] = "🟡 Dikkat"
+    normal_mask = merged["durum"] == "Normal"
+    merged.loc[normal_mask & (merged["max_doluluk"] > 100), "durum"] = "Kapasite Aşıldı"
+    merged.loc[normal_mask & (merged["max_doluluk"] <= 100) & (merged["max_doluluk"] >= 90), "durum"] = "Sınırda"
+    merged.loc[normal_mask & (merged["max_doluluk"] < 90) & (merged["max_doluluk"] >= 80), "durum"] = "Dikkat"
 
     return merged
 
@@ -306,7 +306,7 @@ def compute_machine_utilization(master_df, hesaplanabilenler, calendar_df, machi
 
     agg = mh.groupby(["firma", "plaka"], as_index=False)[[f"{ay}_pay_saat" for ay in AYLAR]].sum()
     long_df = agg.melt(id_vars=["firma", "plaka"], value_vars=[f"{ay}_pay_saat" for ay in AYLAR],
-                        var_name="ay_col", value_name="ihtiyac_saat")
+                       var_name="ay_col", value_name="ihtiyac_saat")
     long_df["ay"] = long_df["ay_col"].str.replace("_pay_saat", "", regex=False)
     long_df = long_df.drop(columns=["ay_col"])
 
@@ -334,20 +334,20 @@ def compute_machine_utilization(master_df, hesaplanabilenler, calendar_df, machi
 
 
 # --------------------------------------------------------------------------
-# ARAYÜZ — SADE VE HERKESİN ANLAYACAĞI ŞEKİLDE
+# ARAYÜZ — SADE VE PROFESYONEL
 # --------------------------------------------------------------------------
 
-st.title("🏭 Kalıp Kapasite Kontrolü")
-st.write("İki dosyayı yükle, hangi kalıpların ve makinelerin yetişemeyeceğini otomatik gör.")
+st.title("Kalıp Kapasite Kontrolü")
+st.write("Master ve öngörü dosyalarını yükleyerek kalıp ve makine kapasite durumlarını otomatik olarak analiz edebilirsiniz.")
 
-# ---- SIDEBAR: sadece 2 adım + isteğe bağlı ayarlar ----
+# ---- SIDEBAR: Dosya Yükleme ve Ayarlar ----
 with st.sidebar:
-    st.subheader("1️⃣ Dosyaları Yükle")
+    st.subheader("1. Dosyaları Yükle")
     master_file = st.file_uploader("Kalıp Listesi (Master Liste)", type=["xlsx"])
     ongoru_file = st.file_uploader("Talep / Öngörü Listesi", type=["xlsx"])
 
-    with st.expander("⚙️ Gelişmiş: Çalışma Takvimi"):
-        st.caption("İş günü, günlük saat ve verimlilik — değiştirmek istemiyorsan dokunma, varsayılan değerler kullanılır.")
+    with st.expander("Gelişmiş: Çalışma Takvimi"):
+        st.caption("İş günü, günlük saat ve verimlilik parametreleridir. Değişiklik yapılmadığı takdirde varsayılan değerler kullanılacaktır.")
         if "calendar_df" not in st.session_state:
             st.session_state.calendar_df = default_calendar()
         st.session_state.calendar_df = st.data_editor(
@@ -355,11 +355,11 @@ with st.sidebar:
         )
 
 if not (master_file and ongoru_file):
-    st.info("⬅️ Başlamak için soldan iki dosyayı yükle.")
+    st.info("İşleme başlamak için lütfen sol menüden Kalıp Listesi ve Öngörü dosyalarını yükleyiniz.")
     st.stop()
 
 # ---- Hesaplama ----
-with st.spinner("Hesaplanıyor..."):
+with st.spinner("Kapasite değerleri hesaplanıyor..."):
     blok_df_raw = extract_blok_kesim_list(master_file, ongoru_file)
     master_df, _ = load_master(master_file)
     ongoru_df, _ = load_ongoru(ongoru_file)
@@ -371,8 +371,8 @@ doluluk_cols = [f"{ay}_doluluk_%" for ay in AYLAR]
 # Blok kesim -> zaten kalıp aranmıyor. Kalıp bulunamadı -> hesaplanamaz (tedarikçi teyidi gerekir).
 result["hesaplanabilir"] = result["kalip_var"] & result["talep_var"] & ~result["is_blok_kesim"]
 
-hesaplanamayan_tedarikci = result[result["talep_var"] & ~result["kalip_var"]].copy()   # 🔵
-hesaplanamayan_blok = result[result["is_blok_kesim"]].copy()                            # 🧊
+hesaplanamayan_tedarikci = result[result["talep_var"] & ~result["kalip_var"]].copy()
+hesaplanamayan_blok = result[result["is_blok_kesim"]].copy()
 hesaplanabilenler = result[result["hesaplanabilir"]].copy()
 hesaplanabilenler["bucket"] = hesaplanabilenler["max_doluluk"].apply(doluluk_bucket)
 
@@ -387,40 +387,40 @@ n_blok = len(hesaplanamayan_blok)
 st.subheader("Durum Özeti")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Toplam Ürün", n_toplam_urun)
-c2.metric("🔴 %100 Üstü (Kapasite Aşıldı)", n_100_plus)
-c3.metric("🟠 %80 ve Üstü", n_80_plus, help="Doluluk oranı %80'i geçen, yakından takip edilmesi gereken kalıplar")
-c4.metric("❓ Hesaplanamayan", n_tedarikci + n_blok, help="Tedarikçi teyidi bekleyen + blok kesimden gelen ürünler")
+c2.metric("%100 Üstü (Kapasite Aşıldı)", n_100_plus)
+c3.metric("%80 ve Üstü", n_80_plus, help="Doluluk oranı %80'i geçen, yakından takip edilmesi gereken kalıplar")
+c4.metric("Hesaplanamayan", n_tedarikci + n_blok, help="Tedarikçi teyidi bekleyen ve blok kesimden gelen ürünler")
 
 if n_100_plus > 0:
-    st.error(f"⚠️ **{n_100_plus} ürün, elindeki kalıp kapasitesini aşıyor.** '🔧 Kalıp Doluluk → 🚨 Acil' sekmesinden bak.")
+    st.error(f"{n_100_plus} adet ürün kalıp kapasitesini aşmaktadır. 'Kalıp Doluluk -> Kritik Seviye' sekmesinden detayları inceleyebilirsiniz.")
 else:
-    st.success("✅ Şu an kapasitesini aşan ürün yok.")
+    st.success("Mevcut durumda kapasitesini aşan ürün bulunmamaktadır.")
 
 st.divider()
 
-ust_kalip, ust_makine, ust_indir = st.tabs(["🔧 Kalıp Doluluk", "🏭 Makine Doluluk", "⬇️ İndir"])
+ust_kalip, ust_makine, ust_indir = st.tabs(["Kalıp Doluluk", "Makine Doluluk", "Dışa Aktar"])
 
 # ============================================================================
 # ÜST SEKME 1: KALIP DOLULUK — kalıpla ilgili her şey burada
 # ============================================================================
 with ust_kalip:
     k_tab1, k_tab2, k_tab3, k_tab4, k_tab5 = st.tabs(
-        ["📅 Aylara Göre Dağılım", "🚨 Acil (%80+)", "🏢 Firma Bazlı En Dolu 10", "🔎 Tüm Kalıpları Ara", "❓ Hesaplanamayanlar"]
+        ["Aylara Göre Dağılım", "Kritik Seviye (%80+)", "Firma Bazlı En Yoğun 10", "Tüm Kalıpları Ara", "Hesaplanamayanlar"]
     )
 
     # ---- Aylara Göre Dağılım — firma bazında ayrı, seçilen aylar ----
     with k_tab1:
-        st.subheader("📅 Aylara Göre Doluluk Dağılımı")
-        secilen_aylar = st.multiselect("Hangi ayları görmek istersin?", AYLAR, default=AYLAR)
+        st.subheader("Aylara Göre Doluluk Dağılımı")
+        secilen_aylar = st.multiselect("Görüntülemek istediğiniz ayları seçiniz:", AYLAR, default=AYLAR)
 
         if not secilen_aylar:
-            st.info("Görmek istediğin en az bir ay seç.")
+            st.info("Lütfen görüntülemek için en az bir ay seçiniz.")
         else:
             for firma in FIRMALAR:
                 st.markdown(f"### {firma}")
                 alt = hesaplanabilenler[hesaplanabilenler["firma"] == firma]
                 if alt.empty:
-                    st.info("Veri yok.")
+                    st.info("Bu firma için yeterli veri bulunmamaktadır.")
                     continue
                 for satir_baslangic in range(0, len(secilen_aylar), 3):
                     cols = st.columns(3)
@@ -430,7 +430,7 @@ with ust_kalip:
                             ay_bucket = ay_bucket[ay_bucket > 0].reset_index()
                             ay_bucket.columns = ["Doluluk Aralığı", "Ürün Sayısı"]
                             if ay_bucket.empty:
-                                st.info(f"{ay}: veri yok")
+                                st.info(f"{ay} ayı için veri bulunamadı.")
                                 continue
                             fig_ay = px.pie(
                                 ay_bucket, names="Doluluk Aralığı", values="Ürün Sayısı",
@@ -442,17 +442,16 @@ with ust_kalip:
                 st.divider()
 
         st.caption(
-            f"Not: {n_tedarikci + n_blok} ürün bu grafiklere dahil değil (❓ Hesaplanamayanlar sekmesine bak) "
-            "çünkü ya kalıbı bulunamadı ya da blok kesimden üretiliyor. "
-            "Renkler: yeşil düşük doluluk, kırmızı %100 üstü."
+            f"Not: Tedarikçi onayı bekleyen ve blok kesimden gelen toplam {n_tedarikci + n_blok} ürün bu grafiklere dahil edilmemiştir ('Hesaplanamayanlar' sekmesinden incelenebilir). "
+            "Grafikteki yeşil tonlar düşük doluluğu, kırmızı tonlar %100 üstü doluluğu temsil eder."
         )
 
     # ---- Acil (%80 ve üzeri) ----
     with k_tab2:
-        st.write("Doluluk oranı %80 ve üzerinde olan, yakından takip edilmesi gereken ürünler:")
+        st.write("Doluluk oranı %80 ve üzerinde olan, operasyonel olarak takip edilmesi gereken ürünler:")
         acil = hesaplanabilenler[hesaplanabilenler["max_doluluk"] >= 80].sort_values("max_doluluk", ascending=False)
         if acil.empty:
-            st.success("Şu an %80 üzerinde doluluğa sahip ürün yok. 🎉")
+            st.success("Mevcut durumda %80 üzerinde doluluğa sahip ürün bulunmamaktadır.")
         else:
             st.dataframe(
                 acil[["firma", "kod", "tanim", "en_yogun_ay", "max_doluluk"]].rename(columns={
@@ -466,18 +465,18 @@ with ust_kalip:
                     )
                 },
             )
-            st.caption("İpucu: Doluluk %100'ü geçiyorsa, o kalıp elindeki süre içinde talebi karşılayamıyor demektir.")
+            st.caption("Bilgi: Doluluk oranı %100'ü aşan kalıplar, belirtilen zaman aralığında mevcut talebi karşılayamamaktadır.")
 
     # ---- Firma Bazlı En Dolu 10 ----
     with k_tab3:
-        st.write("Her firmanın en dolu (en yoğun) 10 kalıbı, ayrı ayrı:")
+        st.write("Firmalara göre kapasite kullanım oranı en yüksek olan 10 kalıp:")
         col_basas, col_mefa = st.columns(2)
         for firma, kolon in zip(FIRMALAR, [col_basas, col_mefa]):
             with kolon:
                 st.markdown(f"#### {firma}")
                 top10 = hesaplanabilenler[hesaplanabilenler["firma"] == firma].nlargest(10, "max_doluluk")
                 if top10.empty:
-                    st.info("Veri yok.")
+                    st.info("Kayıt bulunamadı.")
                     continue
                 st.dataframe(
                     top10.sort_values("max_doluluk", ascending=False)[["firma", "kod", "tanim", "en_yogun_ay", "max_doluluk"]].rename(columns={
@@ -494,7 +493,7 @@ with ust_kalip:
 
     # ---- Arama ----
     with k_tab4:
-        arama = st.text_input("🔎 Kalıp kodu veya ürün adı yaz", placeholder="örn: 484070 veya köşe takviye")
+        arama = st.text_input("Kalıp kodu veya ürün adı giriniz", placeholder="Örn: 484070 veya köşe takviye")
         firma_secim = st.multiselect("Firma", FIRMALAR, default=FIRMALAR)
 
         gosterilecek = hesaplanabilenler[hesaplanabilenler["firma"].isin(firma_secim)]
@@ -505,7 +504,7 @@ with ust_kalip:
                 | gosterilecek["tanim"].astype(str).str.lower().str.contains(arama_l)
             ]
 
-        detay_goster = st.checkbox("Ay ay detayı göster (6 ay ayrı ayrı)")
+        detay_goster = st.checkbox("Aylık detayları göster")
         if detay_goster:
             kolonlar = ["firma", "kod", "tanim"] + doluluk_cols
             col_config = {col: st.column_config.NumberColumn(col.replace("_doluluk_%", ""), format="%.0f%%") for col in doluluk_cols}
@@ -519,16 +518,16 @@ with ust_kalip:
             }),
             width="stretch", hide_index=True, column_config=col_config,
         )
-        st.caption("Bu liste sadece doluluğu hesaplanabilen ürünleri gösterir. Diğerleri için '❓ Hesaplanamayanlar' sekmesine bak.")
+        st.caption("Listelenen veriler yalnızca hesaplanabilir ürünleri kapsamaktadır. Diğer ürünler için 'Hesaplanamayanlar' sekmesini inceleyiniz.")
 
     # ---- Hesaplanamayanlar (tedarikçi teyidi + blok kesim, ayrı ayrı) ----
     with k_tab5:
-        st.write("Bu ürünlerin doluluk oranı hesaplanamıyor — nedenleri farklı olduğu için iki ayrı grupta gösteriliyor.")
+        st.write("Veri kısıtları nedeniyle doluluk oranı hesaplanamayan ürünler kategorilerine göre aşağıda listelenmiştir.")
 
-        st.markdown("#### 🔵 Tedarikçi ile doğrulanması gerekenler")
-        st.caption("Bu ürünler için talep var ama Kalıp Listesi'nde eşleşen bir kalıp bulunamadı. Kalıp bilgisi tedarikçiden/kalıphaneden teyit edilmeli.")
+        st.markdown("#### Tedarikçi Teyidi Gerekenler")
+        st.caption("Öngörü listesinde talebi bulunan ancak Master Liste'de kalıp eşleşmesi yapılamayan ürünler. Kalıp verisi tedarikçiden veya ilgili departmandan doğrulanmalıdır.")
         if hesaplanamayan_tedarikci.empty:
-            st.success("Bu grupta ürün yok.")
+            st.success("Bu grupta ürün bulunmamaktadır.")
         else:
             st.dataframe(
                 hesaplanamayan_tedarikci[["firma", "kod", "tanim"] + AYLAR].rename(
@@ -537,10 +536,10 @@ with ust_kalip:
                 width="stretch", hide_index=True,
             )
 
-        st.markdown("#### 🧊 Blok kesimden gelenler")
-        st.caption("Bu ürünler kalıptan değil, blok kesimden üretiliyor — kapasite hesabına hiç dahil edilmiyor.")
+        st.markdown("#### Blok Kesim Ürünleri")
+        st.caption("Kalıp prosesine dahil olmayan, blok kesim yöntemiyle üretilen ürünler. Kapasite hesaplamasına dahil edilmemiştir.")
         if hesaplanamayan_blok.empty and blok_df_raw.empty:
-            st.success("Bu grupta ürün yok.")
+            st.success("Bu grupta ürün bulunmamaktadır.")
         elif not blok_df_raw.empty:
             st.dataframe(
                 blok_df_raw[["firma", "Orijinal_Malzeme_Kodu", "tanim"]].rename(
@@ -554,16 +553,16 @@ with ust_kalip:
 # ============================================================================
 with ust_makine:
     m_tab1, m_tab2, m_tab3 = st.tabs(
-        ["🔢 Gerçek Makine Sayıları", "🏭 Makine Bazlı Ürün Sayısı", "📈 Makine Doluluk % (Ay / Firma)"]
+        ["Gerçek Makine Sayıları", "Makine Bazlı Ürün Sayısı", "Makine Doluluk Oranları (%)"]
     )
 
     # ---- Gerçek Makine Sayıları (girdi) + Toplam Süre karşılaştırması ----
     with m_tab1:
-        st.write("Her farklı **Plaka Ebatı**, bir makine tipini temsil eder.")
+        st.write("Her farklı **Plaka Ebatı**, sistemsel olarak bir makine tipini temsil etmektedir.")
         st.caption(
-            "Master Liste'den her ürünün hangi Plaka Ebatı'nda (makine tipi) üretildiğini biliyoruz, "
-            "ama o tipten gerçekte kaç makine olduğunu dosyadan çıkaramıyoruz. Bu sayıyı tahmin etmek "
-            "yanlış sonuç verir — lütfen aşağıya her makine tipi için GERÇEK makine adedini girin."
+            "Master Liste üzerinden her ürünün hangi Plaka Ebatında üretileceği tespit edilmektedir. "
+            "Ancak ilgili ebat tipinden üretim tesisinde kaç adet aktif makine olduğu sistemden doğrudan alınamamaktadır. "
+            "Gerçekçi kapasite verisi elde etmek için lütfen aşağıdaki tabloya mevcut makine adetlerini giriniz."
         )
 
         machine_key = "machine_counts_df"
@@ -593,13 +592,13 @@ with ust_makine:
 
         if (machine_counts_df["makine_sayisi"] == 1).all():
             st.warning(
-                "⚠️ Makine sayıları henüz girilmedi — her tip için geçici olarak '1 makine' "
-                "varsayılıyor. Bu gerçek kapasiteyi YANSITMAZ; yukarıdaki tabloyu doldurun."
+                "Makine sayıları henüz sisteme tanımlanmadı. Geçici olarak her makine tipi için 1 adet olduğu varsayılmaktadır. "
+                "Bu durum gerçek kapasite analizini etkileyebilir; verimli sonuçlar için yukarıdaki tabloyu doldurunuz."
             )
 
         st.divider()
         st.subheader("Aylık Toplam Süre İhtiyacı")
-        st.write("Firma bazında, her ay toplamda kaç saat kalıp/makine zamanı gerektiği:")
+        st.write("Firma bazında her ay için gerekli olan toplam kalıp/makine çalışma saatleri:")
 
         sure_satirlari = []
         for firma in FIRMALAR:
@@ -619,9 +618,9 @@ with ust_makine:
         basas_makine = int(machine_counts_df.loc[machine_counts_df["firma"] == "BASAŞ", "makine_sayisi"].sum())
         mefa_makine = int(machine_counts_df.loc[machine_counts_df["firma"] == "MEFA", "makine_sayisi"].sum())
         st.caption(
-            f"Kapasite Saat = (bir makinenin aylık kapasitesi) × (o firmadaki GİRDİĞİNİZ toplam makine sayısı). "
-            f"Şu an BASAŞ: {basas_makine} makine, MEFA: {mefa_makine} makine olarak hesaplanıyor "
-            "(yukarıdaki tabloyu güncelleyerek değiştirebilirsiniz)."
+            f"Kapasite Saat Formülü: (Bir makinenin aylık kapasitesi) × (Belirtilen toplam makine sayısı). "
+            f"Mevcut hesaplamada BASAŞ: {basas_makine} makine, MEFA: {mefa_makine} makine olarak işleme alınmıştır "
+            "(İlgili sayılar yukarıdaki tablodan güncellenebilir)."
         )
 
         fig_sure = px.bar(
@@ -630,45 +629,44 @@ with ust_makine:
         )
         st.plotly_chart(fig_sure, width="stretch")
         st.caption(
-            "Bu grafik sadece toplam iş yükü göstergesidir (tüm makinelerin ihtiyacı toplanmış); "
-            "kapasiteyle karşılaştırma için aşağıdaki 'Makine Bazında' grafiğe bak."
+            "Bu grafik genel makine zaman ihtiyacını kümülatif olarak gösterir. "
+            "Kapasite kıyası için aşağıdaki 'Makine Bazında' karşılaştırma grafiğini inceleyiniz."
         )
 
-        with st.expander("ℹ️ Bu grafik nasıl hesaplanıyor?"):
+        with st.expander("Hesaplama Yöntemi"):
             st.markdown(
                 """
-Her ürün için önce **birleşik üretim hızı** bulunur — o ürünü üretebilen tüm kalıpların
-(Kalıp Adet ÷ Kalıp Çevrim) değerleri toplanarak elde edilir (çevrim süreleri farklı
-olsa bile doğru sonuç verir):
+Her ürün için öncelikle **birleşik üretim hızı** tespit edilir. Bu oran, ilgili ürünü üretebilen tüm kalıpların 
+kapasitelerinin (Kalıp Adet ÷ Kalıp Çevrim Süresi) toplanmasıyla elde edilmektedir:
 
 `Birleşik Hız = Σ (Kalıp Adet / Kalıp Çevrim)`  → parça/saniye
 
-Sonra o ayki talebi karşılamak için gereken süre hesaplanır:
+Daha sonra aylık üretim hedefini yakalamak için gereken süre hesaplanır:
 
 `İhtiyaç Saat = Talep Adedi / (Birleşik Hız × 3600)`
 
-Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat toplamıdır**:
+Grafikte yer alan çubuklar, **ilgili firmadaki tüm ürünlerin İhtiyaç Saat toplamını** temsil etmektedir:
 
-`Toplam İhtiyaç Saat = Σ (her ürünün kendi İhtiyaç Saati)`
+`Toplam İhtiyaç Saat = Σ (Her ürünün İhtiyaç Saati)`
                 """
             )
 
         st.divider()
-        st.subheader("İhtiyaç Saat / Kapasite Saat Karşılaştırması — Makine Bazında")
+        st.subheader("İhtiyaç Saat ve Kapasite Saat Karşılaştırması — Makine Bazında")
         st.caption(
-            "⚠️ Her parça her makinede üretilmiyor, bu yüzden karşılaştırma firma toplamı değil, "
-            "**her makinenin kendi ihtiyacı kendi kapasitesine karşı** gösteriliyor."
+            "Not: Tüm ürünler her makinede üretilemediğinden dolayı, kapasite değerlendirmesi genel firma seviyesinde değil, "
+            "**her makine tipinin (plaka ebatı) kendi üretim ihtiyacına ve sınırına göre** yapılmıştır."
         )
 
         makine_doluluk_karsilastirma = compute_machine_utilization(
             master_df, hesaplanabilenler, st.session_state.calendar_df, machine_counts_df
         )
 
-        firma_secim_kars = st.radio("Firma seç", FIRMALAR, horizontal=True, key="kars_firma_secim")
+        firma_secim_kars = st.radio("Firma seçiniz", FIRMALAR, horizontal=True, key="kars_firma_secim")
         alt_makine = makine_doluluk_karsilastirma[makine_doluluk_karsilastirma["firma"] == firma_secim_kars]
 
         if alt_makine.empty:
-            st.info("Veri yok.")
+            st.info("Bu kriterlere uygun veri bulunmamaktadır.")
         else:
             uzun = alt_makine.melt(
                 id_vars=["plaka", "ay"], value_vars=["ihtiyac_saat", "kapasite_saat"],
@@ -686,11 +684,11 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
             fig_kars.for_each_annotation(lambda a: a.update(text=a.text.replace("plaka=", "")))
             fig_kars.update_xaxes(matches=None)
             st.plotly_chart(fig_kars, width="stretch")
-        st.caption("Kapasite Saat (her makine için) = (İş Günü × Günlük Saat × Verimlilik) × o makinenin Gerçek Makine Sayısı.")
+        st.caption("Kapasite Saat = (İş Günü × Günlük Saat × Verimlilik) × O makine tipi için girilen Gerçek Makine Sayısı.")
 
     # ---- Makine Bazlı Ürün Sayısı (kaç farklı ürün) ----
     with m_tab2:
-        st.write("Aşağıda, her firmanın hangi makinede kaç FARKLI ürün ürettiği gösteriliyor (doluluk değil, ürün çeşidi sayısı).")
+        st.write("Firmaların ilgili makine tiplerinde (plaka ebatı) kaç farklı çeşit ürün ürettiğini inceleyebilirsiniz.")
         col_b, col_m = st.columns(2)
         for firma, kolon in zip(FIRMALAR, [col_b, col_m]):
             with kolon:
@@ -699,21 +697,20 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
                 makine_sayim = alt_master.groupby("plaka")["kod"].nunique().sort_values(ascending=False).reset_index()
                 makine_sayim.columns = ["Makine (Plaka Ebatı)", "Ürün Sayısı"]
                 if makine_sayim.empty:
-                    st.info("Veri yok.")
+                    st.info("Kayıt bulunamadı.")
                     continue
                 fig_makine = px.bar(makine_sayim, x="Makine (Plaka Ebatı)", y="Ürün Sayısı", text_auto=True)
                 st.plotly_chart(fig_makine, width="stretch")
-        st.caption("Not: Plaka Ebatı bilgisi Master Liste'den geliyor. Aynı ölçüdeki farklı yazımlar (örn. '817*980' / '817x980') otomatik birleştirildi.")
+        st.caption("Not: Plaka ebatı verileri Master Liste'den çekilmektedir. Aynı ölçüdeki farklı yazım stilleri (örn. '817*980' / '817x980') sistem tarafından otomatik olarak birleştirilmiştir.")
 
     # ---- Makine Doluluk % (asıl istenen: ay ve firma bazında gerçek doluluk) ----
     with m_tab3:
         st.write(
-            "Her makinenin (Plaka Ebatı), **ay ve firma bazında** gerçek doluluk oranı — "
-            "kaç farklı ürün ürettiği değil, o makinenin ne kadar dolu çalıştığı."
+            "Her makinenin (Plaka Ebatı) ay bazında gerçek kapasite kullanım oranlarını göstermektedir."
         )
         machine_counts_df = st.session_state.get("machine_counts_df")
         if machine_counts_df is None:
-            st.warning("Önce '🔢 Gerçek Makine Sayıları' sekmesine göz at (varsayılan '1 makine' ile de devam edebilirsin).")
+            st.warning("Değerlendirme öncesinde 'Gerçek Makine Sayıları' sekmesindeki adetleri doğrulamanız önerilir (Varsayılan olarak '1 Makine' hesaplamaya dahil edilir).")
             machine_counts_df = master_df[["firma", "plaka"]].drop_duplicates().reset_index(drop=True)
             machine_counts_df["makine_sayisi"] = 1
 
@@ -727,7 +724,7 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
                 st.markdown(f"#### {firma}")
                 alt = makine_doluluk[makine_doluluk["firma"] == firma]
                 if alt.empty:
-                    st.info("Veri yok.")
+                    st.info("Veri bulunamadı.")
                     continue
                 pivot = alt.pivot_table(index="plaka", columns="ay", values="doluluk_%")
                 pivot = pivot[[a for a in AYLAR if a in pivot.columns]]
@@ -737,7 +734,7 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
                 )
                 st.plotly_chart(fig_heat, width="stretch")
 
-        with st.expander("📋 Tam sayılar (tablo halinde)"):
+        with st.expander("Detaylı Veri Tablosu"):
             tablo = makine_doluluk.pivot_table(index=["firma", "plaka"], columns="ay", values="doluluk_%").reset_index()
             tablo = tablo[["firma", "plaka"] + [a for a in AYLAR if a in tablo.columns]]
             st.dataframe(
@@ -747,16 +744,16 @@ Bu grafikteki her bar, **o firmanın o aydaki tüm ürünlerinin İhtiyaç Saat 
             )
 
         st.caption(
-            "Doluluk % = O makinede üretilen tüm ürünlerin ihtiyaç saati toplamı ÷ "
-            "(makine kapasitesi × gerçek makine sayısı). Bir ürün birden fazla makinede "
-            "üretilebiliyorsa, ihtiyacı makineler arasında hız oranına göre bölüştürülür."
+            "Doluluk % Formülü = İlgili makinede üretilen tüm ürünlerin ihtiyaç saati toplamı ÷ "
+            "(Makine kapasitesi × Gerçek makine sayısı). Bir ürünün birden fazla makine alternatifinde üretilebilmesi halinde, "
+            "iş yükü makine kapasite/hız oranına göre dağıtılmıştır."
         )
 
 # ============================================================================
 # ÜST SEKME 3: İNDİR
 # ============================================================================
 with ust_indir:
-    st.write("Hesaplanan tüm sonuçları Excel dosyası olarak indirebilirsin — her grup ayrı sayfada.")
+    st.write("Gerçekleştirilen hesaplamaları Excel formatında bilgisayarınıza indirebilirsiniz. Rapor her bir analiz grubunu farklı sayfalarda içermektedir.")
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         hesaplanabilenler.drop(columns=["bucket"]).to_excel(writer, sheet_name="Doluluk Hesaplanan", index=False)
@@ -764,7 +761,8 @@ with ust_indir:
         if not blok_df_raw.empty:
             blok_df_raw.to_excel(writer, sheet_name="Blok Kesimler", index=False)
     st.download_button(
-        "📥 Excel Olarak İndir", data=buffer.getvalue(),
+        label="Excel Olarak İndir", 
+        data=buffer.getvalue(),
         file_name="Kalip_Kapasite_Sonuclari.xlsx",
         mime="application/vnd.ms-excel",
     )
